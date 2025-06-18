@@ -1,5 +1,6 @@
 import React from 'react'
-import { Home, Plus, BarChart3, Target, Settings, Sparkles } from 'lucide-react'
+import { Home, Plus, BarChart3, Target, Settings, Sparkles, Shield } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
 
 interface LayoutProps {
   children: React.ReactNode
@@ -7,7 +8,7 @@ interface LayoutProps {
   onTabChange: (tab: string) => void
 }
 
-const tabs = [
+const baseTabs = [
   { id: 'dashboard', label: 'Home', icon: Home, gradient: 'from-blue-500 to-cyan-500' },
   { id: 'add', label: 'Add', icon: Plus, gradient: 'from-emerald-500 to-teal-500' },
   { id: 'reports', label: 'Reports', icon: BarChart3, gradient: 'from-purple-500 to-pink-500' },
@@ -16,6 +17,14 @@ const tabs = [
 ]
 
 export function Layout({ children, activeTab, onTabChange }: LayoutProps) {
+  const { user } = useAuth()
+  const isAdmin = user?.email === 'okesamson1@gmail.com'
+
+  // Add admin tab if user is admin
+  const tabs = isAdmin 
+    ? [...baseTabs.slice(0, -1), { id: 'admin', label: 'Admin', icon: Shield, gradient: 'from-red-500 to-rose-600' }, baseTabs[baseTabs.length - 1]]
+    : baseTabs
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 relative">
       {/* Animated background elements */}

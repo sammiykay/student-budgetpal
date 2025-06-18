@@ -7,6 +7,7 @@ import { AddTransaction } from './AddTransaction'
 import { Reports } from './Reports'
 import { Goals } from './Goals'
 import { Settings } from './Settings'
+import { AdminDashboard } from './AdminDashboard'
 import { LoadingSpinner } from './LoadingSpinner'
 
 export function AppContent() {
@@ -33,6 +34,8 @@ export function AppContent() {
         return <Goals />
       case 'settings':
         return <Settings />
+      case 'admin':
+        return <AdminDashboard />
       default:
         return <Dashboard />
     }
