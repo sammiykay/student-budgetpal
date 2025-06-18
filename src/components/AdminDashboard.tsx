@@ -16,7 +16,8 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Sparkles,
-  RefreshCw
+  RefreshCw,
+  Clock
 } from 'lucide-react'
 
 interface UserStats {
@@ -32,7 +33,9 @@ interface RecentUser {
   id: string
   email: string
   created_at: string
-  last_sign_in_at: string
+  last_activity?: string
+  expense_count?: number
+  income_count?: number
 }
 
 interface ExpenseByCategory {
@@ -71,44 +74,136 @@ export function AdminDashboard() {
     setLoading(true)
 
     try {
-      // Get user statistics from auth.users (requires service role key in production)
-      // For now, we'll use a workaround by counting from our app tables
-      
-      // Get total users (approximate from expenses/incomes tables)
-      const { data: expenseUsers } = await supabase
+      // Get all expenses with user data
+      const { data: allExpenses } = await supabase
         .from('expenses')
-        .select('user_id')
-        .limit(1000)
+        .select('amount, category, created_at, user_id')
 
-      const { data: incomeUsers } = await supabase
+      // Get all incomes with user data
+      const { data: allIncomes } = await supabase
         .from('incomes')
-        .select('user_id')
-        .limit(1000)
+        .select('amount, frequency, created_at, user_id')
 
-      const uniqueUsers = new Set([
-        ...(expenseUsers?.map(e => e.user_id) || []),
-        ...(incomeUsers?.map(i => i.user_id) || [])
+      // Get all goals
+      const { data: allGoals } = await supabase
+        .from('goals')
+        .select('id, created_at, user_id')
+
+      // Get all study sessions to find more users
+      const { data: studySessions } = await supabase
+        .from('study_sessions')
+        .select('user_id, created_at')
+
+      // Get all todos to find more users
+      const { data: todos } = await supabase
+        .from('todos')
+        .select('user_id, created_at')
+
+      // Combine all user IDs from different tables
+      const allUserIds = new Set([
+        ...(allExpenses?.map(e => e.user_id) || []),
+        ...(allIncomes?.map(i => i.user_id) || []),
+        ...(allGoals?.map(g => g.user_id) || []),
+        ...(studySessions?.map(s => s.user_id) || []),
+        ...(todos?.map(t => t.user_id) || [])
       ])
+
+      // Create user activity map
+      const userActivity: { [key: string]: { 
+        firstSeen: string, 
+        lastActivity: string, 
+        expenseCount: number, 
+        incomeCount: number 
+      } } = {}
+
+      // Process expenses
+      allExpenses?.forEach(expense => {
+        if (!userActivity[expense.user_id]) {
+          userActivity[expense.user_id] = {
+            firstSeen: expense.created_at,
+            lastActivity: expense.created_at,
+            expenseCount: 0,
+            incomeCount: 0
+          }
+        }
+        userActivity[expense.user_id].expenseCount++
+        if (new Date(expense.created_at) > new Date(userActivity[expense.user_id].lastActivity)) {
+          userActivity[expense.user_id].lastActivity = expense.created_at
+        }
+        if (new Date(expense.created_at) < new Date(userActivity[expense.user_id].firstSeen)) {
+          userActivity[expense.user_id].firstSeen = expense.created_at
+        }
+      })
+
+      // Process incomes
+      allIncomes?.forEach(income => {
+        if (!userActivity[income.user_id]) {
+          userActivity[income.user_id] = {
+            firstSeen: income.created_at,
+            lastActivity: income.created_at,
+            expenseCount: 0,
+            incomeCount: 0
+          }
+        }
+        userActivity[income.user_id].incomeCount++
+        if (new Date(income.created_at) > new Date(userActivity[income.user_id].lastActivity)) {
+          userActivity[income.user_id].lastActivity = income.created_at
+        }
+        if (new Date(income.created_at) < new Date(userActivity[income.user_id].firstSeen)) {
+          userActivity[income.user_id].firstSeen = income.created_at
+        }
+      })
+
+      // Process other activities (study sessions, todos)
+      studySessions?.forEach(session => {
+        if (!userActivity[session.user_id]) {
+          userActivity[session.user_id] = {
+            firstSeen: session.created_at,
+            lastActivity: session.created_at,
+            expenseCount: 0,
+            incomeCount: 0
+          }
+        }
+        if (new Date(session.created_at) > new Date(userActivity[session.user_id].lastActivity)) {
+          userActivity[session.user_id].lastActivity = session.created_at
+        }
+        if (new Date(session.created_at) < new Date(userActivity[session.user_id].firstSeen)) {
+          userActivity[session.user_id].firstSeen = session.created_at
+        }
+      })
+
+      todos?.forEach(todo => {
+        if (!userActivity[todo.user_id]) {
+          userActivity[todo.user_id] = {
+            firstSeen: todo.created_at,
+            lastActivity: todo.created_at,
+            expenseCount: 0,
+            incomeCount: 0
+          }
+        }
+        if (new Date(todo.created_at) > new Date(userActivity[todo.user_id].lastActivity)) {
+          userActivity[todo.user_id].lastActivity = todo.created_at
+        }
+        if (new Date(todo.created_at) < new Date(userActivity[todo.user_id].firstSeen)) {
+          userActivity[todo.user_id].firstSeen = todo.created_at
+        }
+      })
 
       // Get this month's data
       const startOfMonth = new Date()
       startOfMonth.setDate(1)
       startOfMonth.setHours(0, 0, 0, 0)
 
-      // Get total expenses
-      const { data: allExpenses } = await supabase
-        .from('expenses')
-        .select('amount, category, created_at')
+      // Calculate new users this month
+      const newUsersThisMonth = Object.values(userActivity).filter(activity => 
+        new Date(activity.firstSeen) >= startOfMonth
+      ).length
 
-      // Get total income
-      const { data: allIncomes } = await supabase
-        .from('incomes')
-        .select('amount, frequency')
-
-      // Get total goals
-      const { data: allGoals } = await supabase
-        .from('goals')
-        .select('id')
+      // Calculate active users (users with activity in last 30 days)
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+      const activeUsers = Object.values(userActivity).filter(activity => 
+        new Date(activity.lastActivity) >= thirtyDaysAgo
+      ).length
 
       // Calculate monthly income
       let totalIncome = 0
@@ -138,15 +233,10 @@ export function AdminDashboard() {
         count: data.count
       })).sort((a, b) => b.total - a.total)
 
-      // New users this month (approximate)
-      const newUsersThisMonth = allExpenses?.filter(expense => 
-        new Date(expense.created_at) >= startOfMonth
-      ).length || 0
-
       setStats({
-        totalUsers: uniqueUsers.size,
-        newUsersThisMonth: Math.min(newUsersThisMonth, uniqueUsers.size),
-        activeUsers: Math.floor(uniqueUsers.size * 0.7), // Estimate
+        totalUsers: allUserIds.size,
+        newUsersThisMonth,
+        activeUsers,
         totalExpenses: allExpenses?.reduce((sum, e) => sum + e.amount, 0) || 0,
         totalIncome,
         totalGoals: allGoals?.length || 0
@@ -154,29 +244,20 @@ export function AdminDashboard() {
 
       setExpensesByCategory(expensesByCategory)
 
-      // Mock recent users data (in production, you'd get this from auth.users)
-      const mockRecentUsers: RecentUser[] = [
-        {
-          id: '1',
-          email: 'student1@example.com',
-          created_at: new Date(Date.now() - 86400000).toISOString(),
-          last_sign_in_at: new Date(Date.now() - 3600000).toISOString()
-        },
-        {
-          id: '2',
-          email: 'student2@example.com',
-          created_at: new Date(Date.now() - 172800000).toISOString(),
-          last_sign_in_at: new Date(Date.now() - 7200000).toISOString()
-        },
-        {
-          id: '3',
-          email: 'student3@example.com',
-          created_at: new Date(Date.now() - 259200000).toISOString(),
-          last_sign_in_at: new Date(Date.now() - 10800000).toISOString()
-        }
-      ]
+      // Create recent users list with real data
+      const recentUsersData: RecentUser[] = Object.entries(userActivity)
+        .map(([userId, activity]) => ({
+          id: userId,
+          email: `user-${userId.slice(0, 8)}@student.com`, // Anonymized email
+          created_at: activity.firstSeen,
+          last_activity: activity.lastActivity,
+          expense_count: activity.expenseCount,
+          income_count: activity.incomeCount
+        }))
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 10) // Show last 10 users
 
-      setRecentUsers(mockRecentUsers)
+      setRecentUsers(recentUsersData)
 
     } catch (error) {
       console.error('Error loading admin data:', error)
@@ -189,6 +270,24 @@ export function AdminDashboard() {
     setRefreshing(true)
     await loadAdminData()
     setRefreshing(false)
+  }
+
+  const formatTimeAgo = (dateString: string) => {
+    const now = new Date()
+    const date = new Date(dateString)
+    const diffInHours = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60))
+    
+    if (diffInHours < 1) return 'Just now'
+    if (diffInHours < 24) return `${diffInHours}h ago`
+    
+    const diffInDays = Math.floor(diffInHours / 24)
+    if (diffInDays < 7) return `${diffInDays}d ago`
+    
+    const diffInWeeks = Math.floor(diffInDays / 7)
+    if (diffInWeeks < 4) return `${diffInWeeks}w ago`
+    
+    const diffInMonths = Math.floor(diffInDays / 30)
+    return `${diffInMonths}mo ago`
   }
 
   if (!isAdmin) {
@@ -398,32 +497,49 @@ export function AdminDashboard() {
             <Users className="w-5 h-5 sm:w-6 sm:h-6 text-gray-400" />
           </div>
           
-          <div className="space-y-3 sm:space-y-4">
-            {recentUsers.map((user, index) => (
-              <div 
-                key={user.id} 
-                className="group flex items-center justify-between p-3 sm:p-5 bg-gray-50/80 backdrop-blur-sm rounded-xl sm:rounded-2xl border border-gray-100/50 hover:bg-white/90 hover:shadow-lg transition-all duration-300 transform hover:scale-[1.02]"
-                style={{ animationDelay: `${index * 100}ms` }}
-              >
-                <div className="flex items-center min-w-0 flex-1">
-                  <div className="w-10 h-10 sm:w-14 sm:h-14 bg-gradient-to-br from-blue-100 to-purple-200 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-4 group-hover:scale-110 transition-transform duration-300 flex-shrink-0">
-                    <Users className="w-4 h-4 sm:w-6 sm:h-6 text-blue-600" />
+          {recentUsers.length > 0 ? (
+            <div className="space-y-3 sm:space-y-4">
+              {recentUsers.map((user, index) => (
+                <div 
+                  key={user.id} 
+                  className="group flex items-center justify-between p-3 sm:p-5 bg-gray-50/80 backdrop-blur-sm rounded-xl sm:rounded-2xl border border-gray-100/50 hover:bg-white/90 hover:shadow-lg transition-all duration-300 transform hover:scale-[1.02]"
+                  style={{ animationDelay: `${index * 100}ms` }}
+                >
+                  <div className="flex items-center min-w-0 flex-1">
+                    <div className="w-10 h-10 sm:w-14 sm:h-14 bg-gradient-to-br from-blue-100 to-purple-200 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-4 group-hover:scale-110 transition-transform duration-300 flex-shrink-0">
+                      <Users className="w-4 h-4 sm:w-6 sm:h-6 text-blue-600" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold text-gray-900 text-sm sm:text-lg truncate">{user.email}</p>
+                      <div className="flex items-center space-x-2 text-xs sm:text-sm text-gray-500">
+                        <span>Joined {formatTimeAgo(user.created_at)}</span>
+                        {user.expense_count !== undefined && (
+                          <span>• {user.expense_count} expenses</span>
+                        )}
+                        {user.income_count !== undefined && user.income_count > 0 && (
+                          <span>• {user.income_count} incomes</span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-bold text-gray-900 text-sm sm:text-lg truncate">{user.email}</p>
-                    <p className="text-gray-500 text-xs sm:text-sm">
-                      Joined {new Date(user.created_at).toLocaleDateString()}
-                    </p>
+                  <div className="text-right flex-shrink-0 ml-2">
+                    <div className="flex items-center text-xs sm:text-sm text-gray-500">
+                      <Clock className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
+                      <span>{formatTimeAgo(user.last_activity || user.created_at)}</span>
+                    </div>
                   </div>
                 </div>
-                <div className="text-right flex-shrink-0 ml-2">
-                  <p className="text-xs sm:text-sm text-gray-500">
-                    Last active: {new Date(user.last_sign_in_at).toLocaleDateString()}
-                  </p>
-                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12 sm:py-16">
+              <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl sm:rounded-3xl flex items-center justify-center mx-auto mb-4 sm:mb-6">
+                <Users className="w-8 h-8 sm:w-10 sm:h-10 text-gray-400" />
               </div>
-            ))}
-          </div>
+              <h3 className="text-lg sm:text-xl font-bold text-gray-900 mb-2 sm:mb-3">No users found</h3>
+              <p className="text-gray-500 text-base sm:text-lg">Users will appear here as they start using the app! 👥</p>
+            </div>
+          )}
         </div>
       </div>
     </div>
