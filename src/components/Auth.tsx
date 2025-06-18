@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { Wallet, Mail, Lock, Eye, EyeOff } from 'lucide-react'
+import { isSupabaseConfigured } from '../lib/supabase'
+import { Wallet, Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react'
 
 export function Auth() {
   const [isSignUp, setIsSignUp] = useState(false)
@@ -11,8 +12,17 @@ export function Auth() {
   const [error, setError] = useState('')
   const { signUp, signIn } = useAuth()
 
+  // Check if Supabase is configured
+  const supabaseConfigured = isSupabaseConfigured()
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    if (!supabaseConfigured) {
+      setError('Please configure Supabase by clicking "Connect to Supabase" in the top right corner.')
+      return
+    }
+
     if (!email || !password) {
       setError('Please fill in all fields')
       return
@@ -42,6 +52,21 @@ export function Auth() {
           <h1 className="text-3xl font-bold text-gray-900 mb-2">BudgetPal Student</h1>
           <p className="text-gray-600">Your smart budgeting companion</p>
         </div>
+
+        {/* Supabase Configuration Warning */}
+        {!supabaseConfigured && (
+          <div className="card bg-yellow-50 border-yellow-200 mb-6">
+            <div className="flex items-start">
+              <AlertCircle className="w-5 h-5 text-yellow-600 mt-0.5 mr-3 flex-shrink-0" />
+              <div>
+                <p className="text-yellow-800 text-sm font-medium mb-2">Supabase Not Connected</p>
+                <p className="text-yellow-700 text-sm">
+                  Please click the "Connect to Supabase" button in the top right corner to set up your database connection.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Form */}
         <div className="card">
@@ -97,7 +122,7 @@ export function Auth() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !supabaseConfigured}
               className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
@@ -115,6 +140,7 @@ export function Auth() {
                 type="button"
                 onClick={() => setIsSignUp(!isSignUp)}
                 className="text-primary-600 hover:text-primary-700 font-medium"
+                disabled={!supabaseConfigured}
               >
                 {isSignUp
                   ? 'Already have an account? Sign in'
