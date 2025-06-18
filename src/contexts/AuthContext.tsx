@@ -95,10 +95,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (error) {
       if (error instanceof SupabaseConfigError) {
         setError(error.message)
+        throw error
       } else {
-        setError(error instanceof Error ? error.message : 'An error occurred during sign out')
+        // Check if the error is related to session already being invalid/missing
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        const isSessionError = 
+          errorMessage.includes('Auth session missing!') ||
+          errorMessage.includes('Session from session_id claim in JWT does not exist') ||
+          errorMessage.includes('session_not_found') ||
+          (error as any)?.status === 403
+
+        if (isSessionError) {
+          // Session is already invalid, don't show error - user is effectively signed out
+          return
+        }
+
+        setError(errorMessage || 'An error occurred during sign out')
+        throw error
       }
-      throw error
     }
   }
 
