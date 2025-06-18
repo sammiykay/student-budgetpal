@@ -95,14 +95,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Check for benign session-related errors immediately after the call
       if (error) {
         const errorMessage = error.message || String(error)
+        const errorCode = (error as any)?.code || ''
+        
         const isSessionError = 
           errorMessage.includes('Auth session missing!') ||
           errorMessage.includes('Session from session_id claim in JWT does not exist') ||
           errorMessage.includes('session_not_found') ||
+          errorCode === 'session_not_found' ||
           error.status === 403
 
         if (isSessionError) {
           // Session is already invalid, don't throw error - user is effectively signed out
+          // Clear any existing error state since this is expected behavior
+          setError(null)
           return
         }
         
@@ -114,6 +119,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setError(error.message)
         throw error
       } else {
+        // Check if this is a session-related error even in the catch block
+        const errorMessage = (error as any)?.message || String(error)
+        const errorCode = (error as any)?.code || ''
+        
+        const isSessionError = 
+          errorMessage.includes('Auth session missing!') ||
+          errorMessage.includes('Session from session_id claim in JWT does not exist') ||
+          errorMessage.includes('session_not_found') ||
+          errorCode === 'session_not_found' ||
+          (error as any)?.status === 403
+
+        if (isSessionError) {
+          // This is a benign session error, don't set error state or throw
+          setError(null)
+          return
+        }
+        
         setError(error instanceof Error ? error.message : 'An error occurred during sign out')
         throw error
       }
